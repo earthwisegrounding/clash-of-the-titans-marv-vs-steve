@@ -1,0 +1,4 @@
+export type Collider={x:number;z:number;w:number;d:number};
+export function canOccupy(x:number,z:number,r:number,colliders:Collider[]){return x>=-96+r&&x<=84-r&&z>=-84+r&&z<=84-r&&!colliders.some(b=>Math.abs(x-b.x)<b.w/2+r&&Math.abs(z-b.z)<b.d/2+r);}
+export function meleeHits(a:{x:number;z:number},b:{x:number;z:number},yaw:number,reach:number){const dx=b.x-a.x,dz=b.z-a.z,d=Math.hypot(dx,dz);return d<=reach&&(d<.01||(dx*Math.sin(yaw)+dz*Math.cos(yaw))/d>0.15);}
+export function stepToward(a:{x:number;z:number},b:{x:number;z:number},step:number,colliders:Collider[],r:number){const dx=b.x-a.x,dz=b.z-a.z,length=Math.hypot(dx,dz);if(length<.1)return {x:0,z:0};const angle=Math.atan2(dx,dz);for(const offset of [0,.6,-.6,1.2,-1.2,1.57,-1.57]){const x=Math.sin(angle+offset)*Math.min(step,length),z=Math.cos(angle+offset)*Math.min(step,length);if(canOccupy(a.x+x,a.z+z,r,colliders))return {x,z};}return {x:0,z:0};}
