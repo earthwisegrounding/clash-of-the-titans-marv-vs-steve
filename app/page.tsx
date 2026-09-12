@@ -33,7 +33,9 @@ export default function Home(){
     const g=new BremertonGame(mount.current!,s=>{if(!disposed){setStatus(s);if(s.startsWith('Graphics'))setError(true);}},h=>{if(!disposed)setHud(h);});
     game.current=g;g.setMuted(mutePreference.current);
     await g.load();
-    if(!disposed){setReady(true);setStatus('The waterfront is ready.');removeTools=registerGameTools(g,setPlaying);}
+    if(!disposed){setReady(true);setStatus('The waterfront is ready.');removeTools=registerGameTools(g,setPlaying);
+     if(import.meta.env.DEV){const preview=new URLSearchParams(location.search).get('previewResult');if(preview==='marv'||preview==='steve'){g.start();if(preview==='steve')g.health=0;else{g.kills=1;g.zombies[0].dead=true;}g.showResults(preview);setPlaying(true);}}
+    }
    }catch(e){if(!disposed){setError(true);setStatus('The game could not load. Check your connection and try again.');}console.error(e);}
   }).catch(e=>{if(!disposed){setError(true);setStatus('This game needs a browser with WebGL 2 support.');}console.error(e);});
   return()=>{disposed=true;removeTools();game.current?.dispose();};
@@ -50,13 +52,13 @@ export default function Home(){
  };
  const releaseRun=()=>{game.current?.setRun(false);setRunning(false);};
  const overlay=hud.dead||hud.won||hud.paused;
- return <main className={`game-shell ${playing?'is-playing':'is-title'}`}>
+ return <main className={`game-shell ${playing?'is-playing':'is-title'} ${hud.dead||hud.won?'is-results':''}`}>
   <div className="viewport" ref={mount} aria-label="3D Bremerton waterfront"/><div className="vignette"/>
   <header className="topline">
    <div className="wordmark">VS<span>CLASH OF<br/>THE TITANS</span></div>
    <div className="coordinates">BREMERTON, WA <span>47.5673° N · 122.6326° W</span></div>
    <button className="small-button sound-button" data-sound-toggle onClick={()=>{const next=!muted&&musicStatus==='playing';mutePreference.current=next;setMuted(next);game.current?.setMuted(next);music.current?.setMuted(next);}} aria-label={muted?'Enable music and sound':musicStatus==='playing'?'Mute music and sound':'Play music'}>{muted?'SOUND OFF':musicStatus==='playing'?'SOUND ON':'PLAY MUSIC'}</button>
-   {playing&&<button className="small-button" onClick={()=>game.current?.pause()} aria-label={hud.paused?'Resume game':'Pause game'}>Ⅱ</button>}
+   {playing&&!hud.dead&&!hud.won&&<button className="small-button" onClick={()=>game.current?.pause()} aria-label={hud.paused?'Resume game':'Pause game'}>Ⅱ</button>}
   </header>
   {!playing?<section className="start-panel">
    <div className="eyebrow">BREMERTON · THE ULTIMATE SHOWDOWN</div>
@@ -81,12 +83,13 @@ export default function Home(){
      <button className={running?'is-held':''} onPointerDown={e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);game.current?.setRun(true);setRunning(true);}} onPointerUp={releaseRun} onPointerCancel={releaseRun} onLostPointerCapture={releaseRun} onKeyDown={e=>{if(e.key===' '||e.key==='Enter'){game.current?.setRun(true);setRunning(true);}}} onKeyUp={releaseRun} onBlur={releaseRun}>RUN</button>
     </div>
    </div>
-   {overlay&&<section className="pause-screen" role="dialog" aria-modal="true" aria-labelledby="pause-heading">
-    <div className="eyebrow">{hud.dead?'BREMERTON STILL NEEDS YOU':hud.won?'THE TITANS HAVE SPOKEN.':'TAKE A BREATH'}</div>
-    <h2 id="pause-heading">{hud.dead?'DOWN, NOT DONE.':hud.won?'MARV WINS.':'PAUSED'}</h2>
-    <p>{hud.dead?`Steve has ${Math.ceil(hud.enemyHealth)} grit left. Ready for a rematch?`:hud.won?'Steve is down. The waterfront belongs to Marv.':'Your hometown can wait a moment.'}</p>
-    <button className="start-button" onClick={()=>hud.paused&&!hud.dead&&!hud.won?game.current?.pause():game.current?.restart()}>{hud.paused&&!hud.dead&&!hud.won?'BACK TO THE CLASH':'PLAY AGAIN'}<span aria-hidden="true">↗</span></button>
-    <button className="title-button" onClick={title}>TITLE SCREEN</button>
+   {(hud.dead||hud.won)?<section className="results-screen" role="dialog" aria-modal="true" aria-labelledby="results-heading">
+    <div className="results-heading"><div className="eyebrow">THE TITANS HAVE SPOKEN</div><h2 id="results-heading">{hud.won?'MARV':'STEVE'} WINS.</h2><p>One takes the glory. One takes it personally.</p></div>
+    <div className="result-names"><div><span>WINNER</span><b>{hud.won?'MARV':'STEVE'}</b></div><div><span>DEFEATED</span><b>{hud.won?'STEVE':'MARV'}</b></div></div>
+    <div className="result-buttons"><button className="start-button" onClick={()=>game.current?.restart()}>REMATCH<span aria-hidden="true">↗</span></button><button className="title-button" onClick={title}>TITLE SCREEN</button></div>
+   </section>:hud.paused&&<section className="pause-screen" role="dialog" aria-modal="true" aria-labelledby="pause-heading">
+    <div className="eyebrow">TAKE A BREATH</div><h2 id="pause-heading">PAUSED</h2><p>Your hometown can wait a moment.</p>
+    <button className="start-button" onClick={()=>game.current?.pause()}>BACK TO THE CLASH<span aria-hidden="true">↗</span></button><button className="title-button" onClick={title}>TITLE SCREEN</button>
    </section>}
   </>}
   {error&&<section className="pause-screen" role="alert"><h2>LET’S TRY THAT AGAIN.</h2><p>{status}</p><button className="start-button" onClick={()=>location.reload()}>RELOAD GAME</button></section>}

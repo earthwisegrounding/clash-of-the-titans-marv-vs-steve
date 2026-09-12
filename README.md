@@ -16,6 +16,10 @@ Node 24 recommended. Run `npm ci`, `npm test`, `npm run dev`, or `npm run build`
 
 Tests load the real character meshes and animations, check all eight Steve clips, both title dancers at five viewport sizes, blocking, damage, evasion, pursuit, victory, defeat and replay. Music lifecycle tests cover autoplay fallback, gestures, mute and cleanup.
 
+## Results screen
+
+After the fight, the winner cycles through his three usual dances beside the loser wearing the dress from his complete supplied defeat model. The full defeat take loops while results are open. Rematch starts a fresh fight; Title Screen returns both characters to their normal dances.
+
 ## Soundtrack
 
 “War in the Family Name” is the looping title-screen and gameplay soundtrack, supplied by the user. Use the sound button to play or mute it.

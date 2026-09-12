@@ -26,9 +26,10 @@ async function loadModel(name){
  assert(model.animations.every(c=>c.duration>0&&c.tracks.every(t=>Array.from(t.values).every(Number.isFinite))),`${name} animation data`);
  return model;
 }
-const templates=await Promise.all(['marv','steve'].map(loadModel));
+const templates=await Promise.all(['marv','steve','marv-defeat','steve-defeat'].map(loadModel));
 assert.deepEqual(templates[0].animations.map(c=>c.name).sort(),['walk','run','punch','kick','jump','death','hit','dance1','dance2','dance3'].sort());
-for(const model of templates.slice(1))assert.deepEqual(model.animations.map(c=>c.name).sort(),['attack','block','dance1','dance2','dance3','death','run','walk']);
+for(const model of templates.slice(1,2))assert.deepEqual(model.animations.map(c=>c.name).sort(),['attack','block','dance1','dance2','dance3','death','run','walk']);
+for(const model of templates.slice(2))assert.deepEqual(model.animations.map(c=>c.name),['defeat']);
 function createGame(){
  const g=Object.create(BremertonGame.prototype);
  Object.assign(g,{scene:new T.Scene(),camera:new T.PerspectiveCamera(52,1,.1,500),mount:{clientWidth:1280,clientHeight:800},renderer:{setSize(){}},templates,mobile:true,active:false,paused:false,loaded:true,keys:new Set(),joystick:new T.Vector2(),running:false,yaw:Math.PI,pitch:.28,health:100,stamina:100,kills:0,lock:0,invulnerable:0,strike:0,strikeType:'',jumpVelocity:0,elevation:0,recoil:0,time:0,shake:0,wonAt:0,deadAt:0,message:'',messageUntil:0,titleDanceIndex:0,titleDanceTime:0,titleDances:['dance1','dance2','dance3'],animationElapsed:new Map(),colliders:[],zombies:[],particles:[],sound(){},burst(){},unlockAudio(){},hud(){},status(){}});
@@ -130,3 +131,27 @@ for(const distance of [.7,1.5,2.3])for(const dt of [1/120,1/30,.05]){
  assert.equal(g.health,distance===.7?78:100,`Steve contact at ${distance}m, dt ${dt}`);
 }
 console.log('PASS: actual Steve swings connect only at contact across multiple frame rates.');
+// Results use independent actors: winner cycles dances; loser completes the supplied take.
+for(const winner of ['marv','steve']){
+ const g=createGame();g.ring={visible:true};g.start();
+ if(winner==='marv'){g.zombies[0].dead=true;g.kills=1;}else g.health=0;
+ g.showResults(winner);const [champion,loser]=g.resultActors;
+ assert.equal(champion.current,'dance1');assert.equal(loser.current,'defeat');assert(loser.actions.defeat.getClip().duration>8);
+ assert(!g.marv.root.visible&&!g.zombies[0].root.visible);assert.equal(g.ring.visible,false);
+ const health=g.health;g.tick(1);assert.equal(g.health,health);
+ const dances=[];for(let i=0;i<4;i++){dances.push(champion.current);const duration=champion.actions[champion.current].getClip().duration;for(let t=0;t<duration+.02;t+=.02)g.tickResults(.02);}
+ assert.deepEqual(dances,['dance1','dance2','dance3','dance1']);assert.equal(loser.current,'defeat');assert(!loser.actions.defeat.paused);assert(loser.actions.defeat.time<loser.actions.defeat.getClip().duration);
+ for(const [w,h] of [[390,844],[320,568],[844,390],[1280,720]]){
+  g.mount={clientWidth:w,clientHeight:h};g.resize();const view=g.resultView();g.camera.position.copy(view.position);g.camera.lookAt(view.look);g.camera.updateMatrixWorld();
+  for(const actor of g.resultActors)for(const name of actor===champion?g.titleDances:['defeat']){
+   actor.mixer.stopAllAction();actor.current='';g.play(actor,name,true);const duration=actor.actions[name].getClip().duration;
+   for(let frame=0;frame<=10;frame++){
+    actor.mixer.setTime(duration*frame/10);g.scene.updateMatrixWorld(true);const bounds=new T.Box3().setFromObject(actor.root,true);
+    for(const x of [bounds.min.x,bounds.max.x])for(const y of [bounds.min.y,bounds.max.y])for(const z of [bounds.min.z,bounds.max.z]){const p=new T.Vector3(x,y,z).project(g.camera);assert(p.x>-1&&p.x<1&&p.y>-1&&p.y<1,`${winner} ${name} result framing ${w}x${h}: ${p.toArray()}`);}
+   }
+  }
+ }
+ g.title();assert.equal(g.result,null);assert.equal(g.resultActors.length,0);assert(g.marv.root.visible);g.start();assert.equal(g.health,100);assert.equal(g.zombies[0].health,600);assert.equal(g.camera.view?.enabled??false,false);
+ g.showResults(winner);g.restart();assert.equal(g.result,null);assert.equal(g.resultActors.length,0);assert.equal(g.marv.current,'walk');assert(g.marv.root.visible);
+}
+console.log('PASS: both animated outcomes, full defeat clips, winner dance cycles, responsive framing, rematch and title cleanup.');
