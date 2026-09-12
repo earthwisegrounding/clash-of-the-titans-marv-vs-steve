@@ -6,6 +6,8 @@ A standalone edition of the Marv Reeves game: one-on-one combat against Steve on
 
 WASD / arrows move, Shift runs, J punches, K kicks, Space jumps, drag turns the camera, Escape pauses. Touch movement and action buttons are included.
 
+Melee damage requires an animated hand or kicking foot to overlap the opponent’s body hitboxes during the swing. Walls block strikes, and each swing can damage only once.
+
 Marv has 100 health. Steve has 600 health, pursues Marv, blocks attacks, and winds up a charged strike for 22 damage. Jump or retreat, then counterattack. Punches deal 38 damage and cost 13 stamina; kicks deal 62 and cost 24. Retreat beyond 6 meters for 5 seconds to regenerate health. Win, lose, pause, replay, and return to the dancing title screen.
 
 ## Development

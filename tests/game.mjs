@@ -39,13 +39,17 @@ const g=createGame();assert.equal(g.zombies.length,1);assert.equal(g.zombies[0].
 const seen=[];for(let i=0;i<4;i++){g.tickTitle(.01);seen.push(g.zombies[0].current);const duration=Math.max(g.marv.actions[g.marv.current].getClip().duration,g.zombies[0].actions[g.zombies[0].current].getClip().duration);for(let t=0;t<duration+.025;t+=.025)g.tickTitle(.025);}
 assert.deepEqual(seen,['dance1','dance2','dance3','dance1']);
 g.start();assert.equal(g.marv.current,'walk');assert.equal(g.zombies[0].current,'walk');assert.equal(g.health,100);
-const steve=g.zombies[0];g.marv.root.position.set(0,0,0);g.marv.root.rotation.y=0;steve.root.position.set(0,0,1.5);
-g.play(steve,'block',true);steve.timer=.8;g.strikeType='kick';g.hit();assert.equal(steve.health,600);
-g.play(steve,'attack',true);steve.timer=.5;g.hit();assert.equal(steve.health,538);
-steve.root.position.set(0,0,1.5);steve.root.rotation.y=Math.PI;steve.hitDone=false;g.tick(.05);assert.equal(g.health,78);
-g.invulnerable=0;g.elevation=1;g.marv.root.position.y=1;steve.hitDone=false;g.tick(.05);assert.equal(g.health,78);
-g.elevation=0;g.marv.root.position.y=0;g.invulnerable=0;steve.root.position.set(0,0,4);steve.hitDone=false;g.tick(.05);assert.equal(g.health,78);
-steve.root.position.set(0,0,1.5);steve.health=1;g.strikeType='punch';g.hit();assert.equal(g.kills,1);assert(steve.dead);assert.equal(steve.current,'death');
+// Stage actual animated contact, rather than directly awarding a radius-based hit.
+function strikePose(g,distance=.7){
+ const z=g.zombies[0];g.marv.root.position.set(0,0,0);g.marv.root.rotation.y=0;
+ z.root.position.set(0,0,distance);z.root.rotation.y=Math.PI;
+ g.marv.mixer.stopAllAction();g.marv.current='';g.play(g.marv,'kick',true,1.65);g.marv.mixer.update(.43);
+ g.strikeType='kick';return z;
+}
+const steve=strikePose(g);g.play(steve,'block',true);steve.timer=.8;g.hit();assert.equal(steve.health,600);assert(g.marv.hitDone);
+g.play(steve,'walk');steve.timer=0;g.marv.hitDone=false;g.hit();assert.equal(steve.health,538);
+strikePose(g,2);g.hit();assert.equal(steve.health,538);
+strikePose(g);steve.health=1;g.hit();assert.equal(g.kills,1);assert(steve.dead);assert.equal(steve.current,'death');
 g.restart();assert.equal(g.health,100);assert.equal(g.zombies[0].health,600);assert(!g.zombies[0].dead);g.title();g.tickTitle(.1);assert.equal(g.zombies[0].current,'dance1');g.start();assert.equal(g.zombies[0].current,'walk');
 // Pursuit closes in; repeated swings can defeat an idle player.
 const chase=createGame();chase.start();for(let i=0;i<1200;i++)chase.tick(.05);assert.equal(chase.health,0);assert.equal(chase.marv.current,'death');
@@ -70,8 +74,7 @@ for(const from of ['walk','run','block','attack'])for(const distant of [false,tr
  const g=createGame();g.start();const a=g.zombies[0];
  g.play(a,from,true,from==='attack'?a.actions.attack.getClip().duration/1.65:1);
  a.mixer.update(.4);a.health=1;a.timer=0;
- a.root.position.copy(g.marv.root.position).add(new T.Vector3(0,0,1.5));
- g.marv.root.rotation.y=0;g.strikeType='kick';g.hit();assert(a.dead);
+ strikePose(g,.6);for(let i=0;i<40&&!a.dead;i++){g.marv.mixer.update(.005);g.hit();}assert(a.dead,`Finisher contact after ${from}`);
  if(distant)g.marv.root.position.set(70,0,70);
  for(let i=0;i<90;i++)g.tick(.05);
  g.scene.updateMatrixWorld(true);
@@ -85,3 +88,45 @@ for(const from of ['walk','run','block','attack'])for(const distant of [false,tr
  g.start();assert.equal(g.zombies[0].root.position.y,0);
 }
 console.log('PASS: Steve finishes the full fall, rests prone on the road, and resets cleanly for title/replay.');
+
+// Check the authored swings against the opponent's animated body at every sample.
+for(const who of ['marv','steve'])for(const kick of [false,true]){
+ if(who==='steve'&&kick)continue;
+ function swing(distance,{behind=false,elevation=0,wall=false}={}){
+  const g=createGame();g.start();const a=who==='marv'?g.marv:g.zombies[0],b=who==='marv'?g.zombies[0]:g.marv;
+  a.root.position.set(0,0,0);b.root.position.set(0,elevation,distance);a.root.rotation.y=behind?Math.PI:0;b.root.rotation.y=Math.PI;
+  if(wall)g.colliders=[{x:0,z:distance/2,w:2,d:.05}];
+  b.mixer.stopAllAction();b.current='';g.play(b,'walk');b.actions.walk.paused=true;b.mixer.update(0);
+  a.mixer.stopAllAction();a.current='';const clip=who==='steve'?'attack':kick?'kick':'punch';g.play(a,clip,true,who==='steve'?a.actions.attack.getClip().duration/1.65:kick?1.65:2.9);
+  let contacts=0;
+  for(let t=0;t<1.3;t+=1/120){a.mixer.update(1/120);const active=who==='steve'?t>.28&&t<1.2:kick?t>.22&&t<.58:t>.08&&t<.62;if(active&&g.contact(a,b,kick))contacts++;}
+  return contacts;
+ }
+ assert(swing(.7)>0,`${who} must connect at contact distance`);
+ for(const gap of [1.5,2.1,2.5])assert.equal(swing(gap),0,`${who} must miss at ${gap}m`);
+ assert.equal(swing(.7,{behind:true}),0);
+ assert.equal(swing(.7,{elevation:2}),0);
+ assert.equal(swing(.7,{wall:true}),0);
+}
+// Integrated player swings: one damage event per attack, and no damage across a gap.
+for(const kind of ['punch','kick'])for(const dt of [1/120,1/30,.05]){
+ for(const distance of [.7,2]){
+  const g=createGame();g.start();const z=g.zombies[0];g.marv.root.position.set(0,0,0);z.root.position.set(0,0,distance);z.root.rotation.y=Math.PI;
+  // Keep the target in place while running the real player animation/timing loop.
+  z.current='attack';z.timer=10;z.hitDone=true;g.attack(kind);
+  for(let t=0;t<.9;t+=dt)g.tick(dt);
+  assert.equal(z.health,distance===2?600:600-(kind==='kick'?62:38),`${kind}, ${distance}m, dt ${dt}`);
+ }
+}
+// Body collision still prevents walking through the opponent at close range.
+const bodies=createGame();bodies.start();bodies.marv.root.position.set(0,0,0);bodies.zombies[0].root.position.set(0,0,1);
+bodies.move(bodies.marv.root,new T.Vector3(0,0,3));assert(bodies.marv.root.position.z<=.400001);
+console.log('PASS: animated limb contact, distant misses, facing, vertical separation, walls, single-hit swings at multiple frame rates, and solid bodies.');
+// Steve's real wind-up can hurt at contact, but never at the former damage radius.
+for(const distance of [.7,1.5,2.3])for(const dt of [1/120,1/30,.05]){
+ const g=createGame();g.start();const z=g.zombies[0];g.marv.root.position.set(0,0,0);z.root.position.set(0,0,distance);z.root.rotation.y=Math.PI;
+ g.play(z,'attack',true,z.actions.attack.getClip().duration/1.65);z.timer=1.65;z.hitDone=false;
+ for(let t=0;t<1.3;t+=dt)g.tick(dt);
+ assert.equal(g.health,distance===.7?78:100,`Steve contact at ${distance}m, dt ${dt}`);
+}
+console.log('PASS: actual Steve swings connect only at contact across multiple frame rates.');

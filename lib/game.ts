@@ -31,7 +31,7 @@ export class BremertonGame{
   const a=this.actor(this.templates[1],new T.Vector3(0,0,-2),0);a.health=600;this.zombies=[a];this.play(a,this.active?'walk':'dance1');
  }
  play(a:Actor,name:string,once=false,speed=1){
-  if(a.current===name)return;const next=a.actions[name];if(!next)return;const prev=a.actions[a.current];next.reset().setEffectiveTimeScale(speed).setEffectiveWeight(1);next.paused=false;next.setLoop(once?T.LoopOnce:T.LoopRepeat,once?1:Infinity);next.clampWhenFinished=once;next.play();if(prev)next.crossFadeFrom(prev,.16,true);a.current=name;
+  if(a.current===name)return;const next=a.actions[name];if(!next)return;const prev=a.actions[a.current];next.reset().setEffectiveTimeScale(speed).setEffectiveWeight(1);next.paused=false;next.setLoop(once?T.LoopOnce:T.LoopRepeat,once?1:Infinity);next.clampWhenFinished=once;next.play();if(prev)next.crossFadeFrom(prev,.16,false);a.current=name;
  }
  start(){if(!this.loaded||this.active)return;this.restart();this.active=true;this.paused=false;this.keys.clear();this.releaseStick();this.marv.mixer.stopAllAction();this.marv.current='';this.play(this.marv,'walk');this.marv.actions.walk.paused=true;this.marv.actions.walk.time=0;this.marv.mixer.update(0);this.marv.root.rotation.y=0;this.resize();this.unlockAudio();this.announce('STEVE IS READY. Dodge the wind-up. Strike after he swings.',5);this.emit();}
  restart(){this.zombies.forEach(z=>{this.scene.remove(z.root);z.mixer.stopAllAction();z.root.traverse(o=>{if((o as T.SkinnedMesh).isSkinnedMesh)(o as T.SkinnedMesh).skeleton.dispose();});});this.animationElapsed.clear();this.active=true;this.spawn();this.marv.root.position.set(0,0,6);this.marv.root.rotation.set(0,0,0);this.health=100;this.safeTime=0;this.healing=false;this.stamina=100;this.runExhausted=false;this.kills=0;this.wonAt=0;this.deadAt=0;this.lock=0;this.strike=0;this.elevation=0;this.jumpVelocity=0;this.invulnerable=0;this.recoil=0;this.paused=false;this.active=true;this.keys.clear();this.releaseStick();this.cameraPointer=null;this.drag=false;this.marv.mixer.stopAllAction();this.marv.current='';this.play(this.marv,'walk');this.marv.actions.walk.paused=true;this.marv.actions.walk.time=0;this.marv.mixer.update(0);this.announce('MARV VS STEVE · MAKE IT COUNT.',3);this.emit();}
@@ -73,19 +73,47 @@ export class BremertonGame{
  }
  attack(kind:string){if(!this.active||this.paused||this.health<=0||this.lock>0||this.elevation>.1||this.kills===this.zombies.length)return;const cost=kind==='kick'?24:13;if(this.stamina<cost){this.announce('Catch your breath.',1);return;}this.stamina-=cost;
   const nearby=this.zombies.filter(z=>!z.dead&&z.root.position.distanceTo(this.marv.root.position)<3.3).sort((a,b)=>a.root.position.distanceToSquared(this.marv.root.position)-b.root.position.distanceToSquared(this.marv.root.position))[0];if(nearby){const d=nearby.root.position.clone().sub(this.marv.root.position);this.marv.root.rotation.y=Math.atan2(d.x,d.z);}
-  this.lock=kind==='kick'?.85:.72;this.strike=kind==='kick'?.38:.26;this.strikeType=kind;this.play(this.marv,kind,true,kind==='kick'?1.65:2.9);this.sound('swing');
+  this.lock=kind==='kick'?.85:.72;this.strike=this.lock;this.marv.attackAt=0;this.marv.hitDone=false;this.strikeType=kind;this.play(this.marv,kind,true,kind==='kick'?1.65:2.9);this.sound('swing');
  }
  jump(){if(!this.active||this.paused||this.health<=0||this.lock>0||this.elevation>0||this.stamina<12)return;this.stamina-=12;this.jumpVelocity=6;this.lock=.65;this.play(this.marv,'jump',true,1.1);this.sound('jump');}
- hit(){const p=this.marv.root.position;let count=0;for(const z of this.zombies){if(z.dead||!meleeHits(p,z.root.position,this.marv.root.rotation.y,this.strikeType==='kick'?2.5:2.1))continue;if(z.current==='block'&&z.timer>0){this.burst(z.root.position.clone().add(new T.Vector3(0,1.3,0)),'#78dced');this.announce('STEVE BLOCKED · Wait for his swing.',1.2);this.sound('swing');continue;}z.health-=this.strikeType==='kick'?62:38;count++;this.burst(z.root.position.clone().add(new T.Vector3(0,1.3,0)),'#d7bb72');this.move(z.root,z.root.position.clone().sub(p).normalize().multiplyScalar(this.strikeType==='kick'?.65:.22),.5);if(z.health<=0){z.dead=true;z.timer=0;this.play(z,'death',true);this.kills++;this.announce('STEVE IS DOWN. MARV STANDS TALL.',2);this.sound('kill');} }
+ // Bone-following hitboxes: a strike must touch the animated body, not just its origin.
+ contact(attacker:Actor,defender:Actor,kick:boolean){
+  if(!meleeHits(attacker.root.position,defender.root.position,attacker.root.rotation.y,1.65))return false;
+  // Walls stop melee attacks as well as movement.
+  const a=attacker.root.position,b=defender.root.position;
+  for(const wall of this.colliders){
+   let lo=0,hi=1;
+   for(const [start,end,center,size] of [[a.x,b.x,wall.x,wall.w],[a.z,b.z,wall.z,wall.d]]){
+    const delta=end-start,min=center-size/2,max=center+size/2;
+    if(Math.abs(delta)<1e-8){if(start<min||start>max){hi=-1;break;}}
+    else{const t1=(min-start)/delta,t2=(max-start)/delta;lo=Math.max(lo,Math.min(t1,t2));hi=Math.min(hi,Math.max(t1,t2));}
+   }
+   if(lo<=hi)return false;
+  }
+  attacker.root.updateMatrixWorld(true);defender.root.updateMatrixWorld(true);
+  const point=(actor:Actor,name:string)=>actor.visual.getObjectByName(name)?.getWorldPosition(new T.Vector3());
+  const targets:[string,string,number][]=[['spine','spine003',.20],['spine004','spine005',.15],['upper_armL','forearmL',.10],['forearmL','handL',.09],['upper_armR','forearmR',.10],['forearmR','handR',.09],['thighL','shinL',.13],['shinL','footL',.10],['thighR','shinR',.13],['shinR','footR',.10]];
+  const limbs=kick?['footR','toeR']:['handL','handR'];
+  for(const name of limbs){
+   const p=point(attacker,name);if(!p)continue;
+   for(const [start,end,radius] of targets){
+    const x=point(defender,start),y=point(defender,end);if(!x||!y)continue;
+    const closest=new T.Line3(x,y).closestPointToPoint(p,true,new T.Vector3());
+    if(p.distanceToSquared(closest)<=(radius+(kick?.12:.11))**2)return true;
+   }
+  }
+  return false;
+ }
+ hit(){const p=this.marv.root.position;let count=0;for(const z of this.zombies){if(z.dead||!this.contact(this.marv,z,this.strikeType==='kick'))continue;this.marv.hitDone=true;if(z.current==='block'&&z.timer>0){this.burst(z.root.position.clone().add(new T.Vector3(0,1.3,0)),'#78dced');this.announce('STEVE BLOCKED · Wait for his swing.',1.2);this.sound('swing');continue;}z.health-=this.strikeType==='kick'?62:38;count++;this.burst(z.root.position.clone().add(new T.Vector3(0,1.3,0)),'#d7bb72');this.move(z.root,z.root.position.clone().sub(p).normalize().multiplyScalar(this.strikeType==='kick'?.65:.22),.5);if(z.health<=0){z.dead=true;z.timer=0;this.play(z,'death',true);this.kills++;this.announce('STEVE IS DOWN. MARV STANDS TALL.',2);this.sound('kill');} }
   if(count){this.shake=.15;this.sound('punch');}if(this.kills===this.zombies.length){this.wonAt=this.time;this.announce('MARV WINS THE CLASH.',20);this.lock=0;}
  }
  // Substeps prevent sprinting or knockback from tunneling through a body.
  move(root:T.Object3D,delta:T.Vector3,r=.42){
   const p=root.position,steps=Math.max(1,Math.ceil(Math.hypot(delta.x,delta.z)/.025));
   const bodies=[this.marv,...this.zombies].filter(a=>a.root!==root&&!a.dead&&(a!==this.marv||this.health>0));
-  const radius=root===this.marv.root ? .42 : .48;
+  const radius=.30;
   const clear=(x:number,z:number)=>canOccupy(x,z,r,this.colliders)&&bodies.every(a=>{
-   const q=a.root.position,limit=radius+(a===this.marv ? .42 : .48);
+   const q=a.root.position,limit=radius+.30;
    const next=Math.hypot(x-q.x,z-q.z),current=Math.hypot(p.x-q.x,p.z-q.z);
    return next>=limit-1e-8||(current<limit&&next>current+1e-8);
   });
@@ -93,8 +121,10 @@ export class BremertonGame{
  }
  tick(dt:number){
   if(!this.active||this.paused)return;
+  // Sample fast animated strikes at 120 Hz, including when rendering slows down.
+  if(dt>1/120+1e-9){const steps=Math.ceil(dt*120);for(let i=0;i<steps;i++)this.tick(dt/steps);return;}
   this.time+=dt;this.recoil=Math.max(0,this.recoil-dt);this.invulnerable=Math.max(0,this.invulnerable-dt);this.lock=Math.max(0,this.lock-dt);this.shake=Math.max(0,this.shake-dt);
-  if(this.strike>0){this.strike-=dt;if(this.strike<=0&&this.health>0)this.hit();}
+  if(this.strike>0){this.strike=Math.max(0,this.strike-dt);this.marv.attackAt+=dt;}
   if(this.health>0){let x=(this.keys.has('KeyD')||this.keys.has('ArrowRight')?1:0)-(this.keys.has('KeyA')||this.keys.has('ArrowLeft')?1:0)+this.joystick.x;let y=(this.keys.has('KeyW')||this.keys.has('ArrowUp')?1:0)-(this.keys.has('KeyS')||this.keys.has('ArrowDown')?1:0)+this.joystick.y;const moving=Math.hypot(x,y)>.12;// After exhaustion, recover a useful reserve before allowing another sprint.
    if(this.stamina<=0)this.runExhausted=true;
    else if(this.stamina>=25)this.runExhausted=false;
@@ -111,15 +141,16 @@ export class BremertonGame{
    z.timer=Math.max(0,z.timer-dt);
    const d=Math.hypot(z.root.position.x-this.marv.root.position.x,z.root.position.z-this.marv.root.position.z);
    if(z.current==='attack'&&z.timer>0){
-    if(!z.hitDone&&z.timer<.65){z.hitDone=true;this.burst(z.root.position.clone().add(new T.Vector3(0,1.2,0)),'#ed7965');
-     if(meleeHits(z.root.position,this.marv.root.position,z.root.rotation.y,2.3)&&this.invulnerable===0&&this.elevation<.6){
+    if(!z.hitDone&&z.timer<1.37&&z.timer>.45){
+     if(this.contact(z,this.marv,false)&&this.invulnerable===0){
+      z.hitDone=true;this.burst(this.marv.root.position.clone().add(new T.Vector3(0,1.2,0)),'#ed7965');
       this.health=Math.max(0,this.health-22);if(this.health<=0)this.deadAt=this.time;
       this.invulnerable=1.1;this.shake=.3;this.strike=0;this.play(this.marv,this.health<=0?'death':'hit',true,this.health<=0?1:3.5);this.lock=this.health<=0?99:.55;this.sound('hurt');this.announce(this.health<=0?'Marv is down.':'STEVE CONNECTS · −22 GRIT',1.3);
      }
     }continue;
    }
    if(z.current==='block'&&z.timer>0)continue;
-   if(d<2.1&&z.timer<=0){
+   if(d<.76&&z.timer<=0){
     z.root.rotation.y=Math.atan2(this.marv.root.position.x-z.root.position.x,this.marv.root.position.z-z.root.position.z);
     if(z.current!=='block'&&Math.sin(this.time*1.7)>0.45){this.play(z,'block',true);z.timer=.85;}
     else{z.current='';this.play(z,'attack',true,z.actions.attack.getClip().duration/1.65);z.timer=1.65;z.hitDone=false;this.announce('STEVE WINDS UP · Jump or back away!',1);}
@@ -128,6 +159,10 @@ export class BremertonGame{
     const delta=stepToward(z.root.position,this.marv.root.position,dt*(sprint?4:1.9),this.colliders,.48);
     if(delta.x||delta.z){this.move(z.root,new T.Vector3(delta.x,0,delta.z),.48);z.root.rotation.y=Math.atan2(delta.x,delta.z);}
    }
+  }
+  if(this.strike>0&&!this.marv.hitDone&&this.health>0){
+   const age=this.marv.attackAt;
+   if(this.strikeType==='kick'?age>=.22&&age<=.58:age>=.08&&age<=.62)this.hit();
   }
   const threatened=this.zombies.some(z=>!z.dead&&Math.hypot(z.root.position.x-this.marv.root.position.x,z.root.position.z-this.marv.root.position.z)<=6);
   const previousSafeTime=this.safeTime;
