@@ -14,6 +14,10 @@ Node 24 recommended. Run `npm ci`, `npm test`, `npm run dev`, or `npm run build`
 
 Tests load the real character meshes and animations, check all eight Steve clips, both title dancers at five viewport sizes, blocking, damage, evasion, pursuit, victory, defeat and replay. Music lifecycle tests cover autoplay fallback, gestures, mute and cleanup.
 
+## Soundtrack
+
+“War in the Family Name” is the looping title-screen and gameplay soundtrack, supplied by the user. Use the sound button to play or mute it.
+
 ## Assets
 
 Marv, Steve, their animations, and the music are supplied project assets. Steve was consolidated from bigdaddy.zip with Blender, reducing duplicate skins and textures. The original game remains separate. Environment texture credits are in public/assets/texture-credits.json.

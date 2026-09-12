@@ -22,7 +22,7 @@ export default function Home(){
  const start=()=>{if(!game.current?.loaded)return;game.current.start();setPlaying(true);};
  const title=()=>{game.current?.title();setPlaying(false);setRunning(false);setStick({x:0,y:0});};
  useEffect(()=>{
-  const track=new Soundtrack(new URL('music/marv-reeves-hold-the-line.mp3',document.baseURI).href,setMusicStatus);music.current=track;
+  const track=new Soundtrack(new URL('music/war-in-the-family-name.mp3',document.baseURI).href,setMusicStatus);music.current=track;
   return()=>{track.dispose();music.current=null;};
  },[]);
  useEffect(()=>{
