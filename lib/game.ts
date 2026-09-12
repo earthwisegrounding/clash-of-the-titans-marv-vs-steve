@@ -3,7 +3,7 @@ import {GLTFLoader, type GLTF} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {clone} from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {canOccupy, meleeHits, stepToward, type Collider} from './rules.ts';
 export type Hud={health:number;stamina:number;kills:number;total:number;district:string;message:string;dead:boolean;won:boolean;paused:boolean;healing:boolean;enemyHealth:number;enemyState:string};
-type Actor={root:T.Group;visual:T.Object3D;mixer:T.AnimationMixer;actions:Record<string,T.AnimationAction>;current:string;health:number;timer:number;attackAt:number;hitDone:boolean;dead:boolean;home:T.Vector3;phase:number;district:number};
+type Actor={root:T.Group;visual:T.Object3D;mixer:T.AnimationMixer;actions:Record<string,T.AnimationAction>;current:string;health:number;timer:number;attackAt:number;hitDone:boolean;dead:boolean;home:T.Vector3;phase:number;district:number;groundTarget:number|null};
 export class BremertonGame{
  renderer:T.WebGLRenderer;scene=new T.Scene();camera=new T.PerspectiveCamera(52,1,.1,500);clock=new T.Clock();mount:HTMLElement;raf=0;disposed=false;loaded=false;active=false;paused=false;muted=false;audio:AudioContext|null=null;
  colliders:Collider[]=[];zombies:Actor[]=[];marv!:Actor;world!:T.Object3D;keys=new Set<string>();joystick=new T.Vector2();running=false;runExhausted=false;yaw=Math.PI;pitch=.28;drag=false;pointerX=0;pointerY=0;health=100;safeTime=0;healing=false;stamina=100;kills=0;lock=0;invulnerable=0;strike=0;strikeType='';jumpVelocity=0;elevation=0;titleDanceIndex=0;titleDanceTime=0;readonly titleDances=['dance1','dance2','dance3'];mobile=matchMedia('(pointer:coarse)').matches;recoil=0;cameraPointer:number|null=null;animationElapsed=new Map<Actor,number>();message='';messageUntil=0;time=0;lastHud=0;shake=0;wonAt=0;deadAt=0;templates:GLTF[]=[];cleanup:(()=>void)[]=[];ring:T.Mesh;particles:{mesh:T.Mesh;v:T.Vector3;life:number}[]=[];
@@ -25,7 +25,7 @@ export class BremertonGame{
  }
  actor(g:GLTF,pos:T.Vector3,district:number):Actor{
   const visual=clone(g.scene);const root=new T.Group();root.add(visual);root.position.copy(pos);const box=new T.Box3().setFromObject(visual);const height=box.max.y-box.min.y;visual.scale.setScalar(1.85/height);visual.position.y=-box.min.y*(1.85/height);
-  visual.traverse(o=>{if((o as T.Mesh).isMesh){o.castShadow=!this.mobile;o.receiveShadow=true;const mesh=o as T.SkinnedMesh;if(mesh.isSkinnedMesh){mesh.computeBoundingSphere();mesh.boundingSphere!.radius*=2.5;}o.frustumCulled=true;}});this.scene.add(root);const mixer=new T.AnimationMixer(visual);const actions:Record<string,T.AnimationAction>={};g.animations.forEach(source=>{const c=source.clone();{const track=c.tracks.find(t=>t.name==='spine.position');const spine=visual.getObjectByName('spine');if(track&&spine)for(let i=0;i<track.values.length;i+=3){track.values[i]=spine.position.x;track.values[i+2]=spine.position.z;}}actions[c.name]=mixer.clipAction(c);});return {root,visual,mixer,actions,current:'',health:100,timer:0,attackAt:0,hitDone:false,dead:false,home:pos.clone(),phase:Math.random()*6.28,district};
+  visual.traverse(o=>{if((o as T.Mesh).isMesh){o.castShadow=!this.mobile;o.receiveShadow=true;const mesh=o as T.SkinnedMesh;if(mesh.isSkinnedMesh){mesh.computeBoundingSphere();mesh.boundingSphere!.radius*=2.5;}o.frustumCulled=true;}});this.scene.add(root);const mixer=new T.AnimationMixer(visual);const actions:Record<string,T.AnimationAction>={};g.animations.forEach(source=>{const c=source.clone();if(district===-1||c.name!=='death'){const track=c.tracks.find(t=>t.name==='spine.position');const spine=visual.getObjectByName('spine');if(track&&spine)for(let i=0;i<track.values.length;i+=3){track.values[i]=spine.position.x;track.values[i+2]=spine.position.z;}}actions[c.name]=mixer.clipAction(c);});return {root,visual,mixer,actions,current:'',health:100,timer:0,attackAt:0,hitDone:false,dead:false,home:pos.clone(),phase:Math.random()*6.28,district,groundTarget:null};
  }
  spawn(){
   const a=this.actor(this.templates[1],new T.Vector3(0,0,-2),0);a.health=600;this.zombies=[a];this.play(a,this.active?'walk':'dance1');
@@ -35,14 +35,32 @@ export class BremertonGame{
  }
  start(){if(!this.loaded||this.active)return;this.restart();this.active=true;this.paused=false;this.keys.clear();this.releaseStick();this.marv.mixer.stopAllAction();this.marv.current='';this.play(this.marv,'walk');this.marv.actions.walk.paused=true;this.marv.actions.walk.time=0;this.marv.mixer.update(0);this.marv.root.rotation.y=0;this.resize();this.unlockAudio();this.announce('STEVE IS READY. Dodge the wind-up. Strike after he swings.',5);this.emit();}
  restart(){this.zombies.forEach(z=>{this.scene.remove(z.root);z.mixer.stopAllAction();z.root.traverse(o=>{if((o as T.SkinnedMesh).isSkinnedMesh)(o as T.SkinnedMesh).skeleton.dispose();});});this.animationElapsed.clear();this.active=true;this.spawn();this.marv.root.position.set(0,0,6);this.marv.root.rotation.set(0,0,0);this.health=100;this.safeTime=0;this.healing=false;this.stamina=100;this.runExhausted=false;this.kills=0;this.wonAt=0;this.deadAt=0;this.lock=0;this.strike=0;this.elevation=0;this.jumpVelocity=0;this.invulnerable=0;this.recoil=0;this.paused=false;this.active=true;this.keys.clear();this.releaseStick();this.cameraPointer=null;this.drag=false;this.marv.mixer.stopAllAction();this.marv.current='';this.play(this.marv,'walk');this.marv.actions.walk.paused=true;this.marv.actions.walk.time=0;this.marv.mixer.update(0);this.announce('MARV VS STEVE · MAKE IT COUNT.',3);this.emit();}
- title(){if(!this.loaded)return;this.keys.clear();this.releaseStick();this.cameraPointer=null;this.drag=false;this.active=false;this.paused=false;this.recoil=0;this.shake=0;this.marv.root.position.set(0,0,6);this.marv.visual.rotation.z=0;this.titleDanceIndex=0;this.titleDanceTime=0;this.marv.mixer.stopAllAction();this.marv.current='';this.play(this.marv,this.titleDances[0]);const steve=this.zombies[0];steve.dead=false;steve.root.position.set(1.3,0,6);steve.mixer.stopAllAction();steve.current='';this.play(steve,'dance1');this.resize();}
+ title(){if(!this.loaded)return;this.keys.clear();this.releaseStick();this.cameraPointer=null;this.drag=false;this.active=false;this.paused=false;this.recoil=0;this.shake=0;this.marv.root.position.set(0,0,6);this.marv.visual.rotation.z=0;this.titleDanceIndex=0;this.titleDanceTime=0;this.marv.mixer.stopAllAction();this.marv.current='';this.play(this.marv,this.titleDances[0]);const steve=this.zombies[0];steve.dead=false;steve.groundTarget=null;steve.root.position.set(1.3,0,6);steve.mixer.stopAllAction();steve.current='';this.play(steve,'dance1');this.resize();}
  pause(){if(!this.active||this.health<=0||this.kills===this.zombies.length)return;this.paused=!this.paused;this.keys.clear();this.releaseStick();this.cameraPointer=null;this.drag=false;this.emit();}
  setMuted(v:boolean){this.muted=v;}
  setRun(v:boolean){this.running=v;}
  stick(x:number,y:number,r:DOMRect){this.joystick.set((x-r.left-r.width/2)/(r.width*.4),-(y-r.top-r.height/2)/(r.height*.4));if(this.joystick.length()>1)this.joystick.normalize();}
  releaseStick(){this.joystick.set(0,0);this.running=false;}
  tickTitle(dt:number){if(this.active)return;this.titleDanceTime+=dt;const clip=this.marv.actions[this.titleDances[this.titleDanceIndex]].getClip();if(this.titleDanceTime>=Math.max(clip.duration,this.zombies[0].actions[this.titleDances[this.titleDanceIndex]].getClip().duration)){this.titleDanceTime=0;this.titleDanceIndex=(this.titleDanceIndex+1)%this.titleDances.length;this.play(this.marv,this.titleDances[this.titleDanceIndex]);}this.marv.root.position.x=-1.3;const steve=this.zombies[0];steve.root.position.set(1.3,0,6);steve.root.rotation.y=-.18;this.play(steve,this.titleDances[this.titleDanceIndex]);steve.mixer.update(dt);this.marv.mixer.update(dt);}
- animateZombie(z:Actor,dt:number){if(z.dead&&z.timer>z.actions.death.getClip().duration+1)return;const elapsed=(this.animationElapsed.get(z)||0)+dt;const distance=z.root.position.distanceToSquared(this.marv.root.position);const interval=this.mobile?(distance>400?.1:distance>100?1/30:0):0;if(elapsed>=interval){z.mixer.update(elapsed);this.animationElapsed.set(z,0);}else this.animationElapsed.set(z,elapsed);}
+ animateZombie(z:Actor,dt:number){
+  const death=z.actions.death;
+  // Finish the actual clip before freezing a corpse; wall-clock time is not animation time.
+  if(z.dead&&death.paused){
+   if(z.groundTarget===null){
+    z.root.updateMatrixWorld(true);
+    const bounds=new T.Box3().setFromObject(z.root,true);
+    z.groundTarget=z.root.position.y+.05-bounds.min.y;
+   }
+   z.root.position.y=T.MathUtils.damp(z.root.position.y,z.groundTarget,14,dt);
+   if(Math.abs(z.root.position.y-z.groundTarget)<.001)z.root.position.y=z.groundTarget;
+   return;
+  }
+  const elapsed=(this.animationElapsed.get(z)||0)+dt;
+  const distance=z.root.position.distanceToSquared(this.marv.root.position);
+  const interval=this.mobile?(distance>400?.1:distance>100?1/30:0):0;
+  if(elapsed>=interval){z.mixer.update(elapsed);this.animationElapsed.set(z,0);}else this.animationElapsed.set(z,elapsed);
+ }
+
  bind(){
   const on=(target:EventTarget,event:string,fn:any)=>{target.addEventListener(event,fn);this.cleanup.push(()=>target.removeEventListener(event,fn));};
   on(this.renderer.domElement,'webglcontextlost',(e:Event)=>{e.preventDefault();this.paused=true;this.keys.clear();this.releaseStick();this.status('Graphics were interrupted. Reload to continue.');this.emit();});

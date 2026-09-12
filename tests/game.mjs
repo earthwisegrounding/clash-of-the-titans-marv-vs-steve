@@ -63,3 +63,25 @@ for(const [w,h] of [[390,844],[375,667],[320,568],[844,390],[1280,800]]){
  }
 }
 console.log('PASS: all eight Steve clips; paired title dances and responsive animated bounds; blocking; damage; jump and range evasion; victory, defeat, replay, and pursuit.');
+
+// A real finishing blow must leave Steve prone on the road, including after
+// differently paced combat clips and mobile animation throttling.
+for(const from of ['walk','run','block','attack'])for(const distant of [false,true]){
+ const g=createGame();g.start();const a=g.zombies[0];
+ g.play(a,from,true,from==='attack'?a.actions.attack.getClip().duration/1.65:1);
+ a.mixer.update(.4);a.health=1;a.timer=0;
+ a.root.position.copy(g.marv.root.position).add(new T.Vector3(0,0,1.5));
+ g.marv.root.rotation.y=0;g.strikeType='kick';g.hit();assert(a.dead);
+ if(distant)g.marv.root.position.set(70,0,70);
+ for(let i=0;i<90;i++)g.tick(.05);
+ g.scene.updateMatrixWorld(true);
+ const bounds=new T.Box3().setFromObject(a.root,true);
+ assert(Math.abs(bounds.min.y-.05)<.002,`Steve must touch the road after ${from}: ${bounds.min.y}`);
+ assert(bounds.max.y<.5,`Steve must lie prone after ${from}: ${bounds.max.y}`);
+ assert.equal(a.actions.death.time,a.actions.death.getClip().duration);
+ const original=templates[1].animations.find(c=>c.name==='death').tracks.find(t=>t.name==='spine.position');
+ assert.deepEqual(a.actions.death.getClip().tracks.find(t=>t.name==='spine.position').values,original.values);
+ g.title();g.tickTitle(.1);assert.equal(a.root.position.y,0);assert.equal(a.groundTarget,null);
+ g.start();assert.equal(g.zombies[0].root.position.y,0);
+}
+console.log('PASS: Steve finishes the full fall, rests prone on the road, and resets cleanly for title/replay.');
